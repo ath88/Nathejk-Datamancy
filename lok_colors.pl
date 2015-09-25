@@ -6,15 +6,14 @@ use DateTime;
 use Encode::Encoder qw(encoder);
 use JSON qw(encode_json);
 
-if (scalar @ARGV < 2) {
-  say "Usage: ./sjak_colors.pl [lokNumber] [outputfile.geojson]";
+if (scalar @ARGV < 0) {
+  say "Usage: ./lok_colors.pl [outputfile.geojson]";
   exit();
 }
 
-my $lok = $ARGV[0] // 4;
-my $outfile = $ARGV[1] // 'out.geojson';
+my $outfile = $ARGV[0] // 'out.geojson';
 
-say "Building GeoJSON about [lok $lok] to file [$outfile]";
+say "Building GeoJSON to file [$outfile]";
 
 my $mysql = Mojo::mysql->new('mysql://root@/nathejk15');
 my $db = $mysql->db;
@@ -29,17 +28,18 @@ my @colors = (
 $db->query('SET NAMES latin1');
 my $results = $db->query('
   SELECT
-    nathejk_checkIn.createdUts AS tidspunkt,
+    nathejk_checkIn.createdUts AS tid,
     nathejk_member.title AS bandit,
     nathejk_team.title AS sjak,
+    lokNumber AS lok,
     location
   FROM nathejk_checkIn
     JOIN nathejk_member
     ON nathejk_member.id = memberId
     JOIN nathejk_team
     ON nathejk_member.teamId = nathejk_team.id
-  WHERE lokNumber = ?;'
-, $lok)->hashes->to_array;
+  WHERE isCaught = 1
+;')->hashes->to_array;
 
 my @features;
 foreach my $catch (@{$results}) {
@@ -50,13 +50,14 @@ foreach my $catch (@{$results}) {
   # sometimes local map coordinates are used. ignoring those
   next unless defined $longitude;
 
-  my $color = select_color($catch->{sjak});
-  my $dt = DateTime->from_epoch({epoch => $catch->{tidspunkt}});
+  my $color = select_color($catch->{lok});
+  my $dt = DateTime->from_epoch({epoch => $catch->{tid}});
   my $time = $dt->hms . ' ' . $dt->dmy;
 
   my $feature = {
     type => 'Feature',
     properties => {
+      lok => $catch->{lok},
       bandit => $catch->{bandit},
       sjak => $catch->{sjak},
       tidspunkt => $time,
@@ -74,7 +75,6 @@ foreach my $catch (@{$results}) {
 my $geojson = {type => 'FeatureCollection', features => \@features};
 
 write_file($outfile,  encoder(JSON->new->pretty->encode($geojson))->bytes('iso-8859-15')->utf8);
-
 
 sub select_color {
   my $sjak = shift;
